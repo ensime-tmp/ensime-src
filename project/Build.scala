@@ -108,14 +108,15 @@ object EnsimeBuild extends Build {
         stageTask,
         distTask,
         releaseTask,
+        melpaTask,
         {
           import org.ensime.sbt.Plugin.Settings.ensimeConfig
           import org.ensime.sbt.util.SExp._
           ensimeConfig := sexp(
-	    key(":reference-source-roots"), sexp(
-	      "/Users/aemon/lib/scala/src/compiler",
-	      "/Users/aemon/lib/scala/src/library")
-	  )
+        key(":reference-source-roots"), sexp(
+          "/Users/aemon/lib/scala/src/compiler",
+          "/Users/aemon/lib/scala/src/library")
+      )
         }
       ))
   }
@@ -253,4 +254,29 @@ object EnsimeBuild extends Build {
     }
     None
   }
+
+  var melpa = TaskKey[Unit]("melpa", "Deploy the staged distribution into the MELPA package repository, tag and commit.")
+  lazy val melpaTask: Setting[sbt.Task[Unit]] =
+    melpa <<= (stage,version,scalaVersion) map {
+      (_,version,scalaBuildVersion) =>
+
+      val refDir = new File("../ensime")
+      val referenceRepo = if(refDir.exists) "--reference ../ensime" else ""
+      val packageRepo = "git@github.com:ensime/ensime.git"
+
+      withTemporaryDirectory { tmpDir =>
+        log.info("Cloning the ensime/ensime package repository")
+        doSh("git clone " + referenceRepo + " " + packageRepo + " " + tmpDir) !! (log)
+        doSh("rm -rf " + tmpDir + "/*") !! (log)
+        log.info("Deploying compiled package")
+        doSh("cp -a dist/* " + tmpDir)  !! (log)
+        doSh("git checkout README.md ensime-pkg.el", Some(tmpDir))  !! (log)
+        doSh("git checkout staging", Some(tmpDir))  !! (log)
+        log.info("Commiting changes")
+        doSh("git commit --all", Some(tmpDir))  !! (log)
+        doSh("git push origin staging", Some(tmpDir))  !! (log)
+        None
+      }
+      None
+    }
 }
