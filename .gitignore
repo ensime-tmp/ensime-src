@@ -39,3 +39,4 @@ ensime.sublime*
 
 src/main/scala/org/ensime/server/Test.scala
 .ensime_lucene
+.cask/
