@@ -30,15 +30,70 @@ import Keys._
 import sbt.Path
 import IO._
 import java.io.FileInputStream
+import sbtrelease._
+import sbtrelease.ReleasePlugin._
+import com.typesafe.sbt.SbtGit._
 
-object EnsimeBuild extends Build {
+object ProjectSettings {
+  // Supported Scala versions
+  val TwoNineVersion = "2.9.2"
+  val TwoTenVersion = "2.10.2"
+  val supportedScalaVersions = Seq(TwoNineVersion, TwoTenVersion)
 
-  private def doSh(str:String, cwd:Option[File]) = Process("sh" :: "-c" :: str :: Nil, cwd)
-  private def doSh(str:String) = Process("sh" :: "-c" :: str :: Nil, None)
+  val releaseVersion = "0.9.8.10"
 
-  private def file(str:String) = new File(str)
+  // Reference (local) packaged repository location (ensime/ensime)
+  val refDir = new File("../ensime")
 
-  private lazy val toolsJarCandidates: List[File] = {
+}
+
+object Resolvers {
+  val sonatypeRepo = "Sonatype OSS Repository" at "https://oss.sonatype.org/service/local/staging/deploy/maven2"
+  val sona2repo = "Sonatype OSS Repository 2" at "https://oss.sonatype.org/content/groups/scala-tools/"
+  val sonaSnapsRepo = "Sonatype OSS Snapshot Repository" at "https://oss.sonatype.org/content/repositories/snapshots"
+  val JBOSSrepo = "JBoss Maven 2 Repo" at "http://repository.jboss.org/maven2"
+  val codahaleRepo = "repo.codahale.com" at "http://repo.codahale.com"
+  val ensimeResolvers = Seq(sonatypeRepo, sona2repo, sonaSnapsRepo, JBOSSrepo, codahaleRepo)
+}
+
+object Dependencies {
+  import ProjectSettings._
+
+  def unsupportedScalaVersion(scalaVersion: String): Nothing =
+    sys.error(
+      "Unsupported scala version: " + scalaVersion + ". " +
+      "Supported versions: " + supportedScalaVersions.mkString(", "))
+
+  val ensimeDependencies = (scalaVersion) { scalaVersion =>
+    Seq("org.apache.lucene" % "lucene-core" % "3.5.0",
+      "org.sonatype.tycho" % "org.eclipse.jdt.core" % "3.6.0.v_A58" % "compile;runtime;test",
+      "asm" % "asm" % "3.3",
+      "asm" % "asm-commons" % "3.3",
+      "asm" % "asm-util" % "3.3",
+      "com.googlecode.json-simple" % "json-simple" % "1.1"
+    ) ++
+    (if (scalaVersion == TwoTenVersion)
+      Seq(
+        "org.scalatest" % "scalatest_2.10.0" % "1.8" % "test",
+        "org.scalariform" % "scalariform_2.10" % "0.1.4" % "compile;runtime;test",
+        "org.scala-lang" % "scala-compiler" % scalaVersion % "compile;runtime;test",
+        "org.scala-lang" % "scala-reflect" % scalaVersion % "compile;runtime;test",
+        "org.scala-lang" % "scala-actors" % scalaVersion % "compile;runtime;test")
+    else if (scalaVersion == TwoNineVersion)
+      Seq("org.scalariform" % "scalariform_2.9.1" % "0.1.1" % "compile;runtime;test",
+        "org.scalatest" % "scalatest_2.9.1" % "1.6.1" % "test",
+        "org.scala-lang" % "scala-compiler" % scalaVersion % "compile;runtime;test" withSources())
+    else unsupportedScalaVersion(scalaVersion))
+  }
+}
+
+object Utils {
+  def doSh(str:String, cwd:Option[File]) = Process("sh" :: "-c" :: str :: Nil, cwd)
+  def doSh(str:String) = Process("sh" :: "-c" :: str :: Nil, None)
+
+  def file(str:String) = new File(str)
+
+  lazy val toolsJarCandidates: List[File] = {
     val jdkHome = Option(System.getenv("JAVA_HOME")).getOrElse("/tmp")
     val jreHome = new File(System.getProperty("java.home"))
     List[File](
@@ -46,82 +101,55 @@ object EnsimeBuild extends Build {
       new File(jreHome.getParent + "/lib/tools.jar"))
   }
 
-  private lazy val toolsJar: Option[File] = {
+  lazy val toolsJar: Option[File] = {
     toolsJarCandidates.find(_.exists)
   }
 
-  val root = Path(".")
+  val log = MainLogging.defaultScreen
+}
 
-  val TwoNineVersion = "2.9.2"
-  val TwoTenVersion = "2.10.2"
-  val supportedScalaVersions = Seq(TwoNineVersion, TwoTenVersion)
-  def unsupportedScalaVersion(scalaVersion: String): Nothing =
-    sys.error(
-      "Unsupported scala version: " + scalaVersion + ". " +
-      "Supported versions: " + supportedScalaVersions.mkString(", "))
+object EnsimeBuild extends Build {
+  import ProjectSettings._
+  import Resolvers._
+  import Dependencies._
+  import Utils._
+  import Release._
+
+  val root = Path(".")
 
   lazy val project = {
     Project(
       id = "ensime",
       base = file ("."),
-      settings = Project.defaultSettings ++
-      Seq(
-        version := "0.9.8.10",
-        organization := "org.ensime",
-        scalaVersion := TwoTenVersion,
-        crossScalaVersions := Seq(TwoNineVersion, TwoTenVersion),
-        resolvers <++= (scalaVersion) { scalaVersion =>
-          Seq("Scala-Tools Maven2 Snapshots Repository" at "http://scala-tools.org/repo-snapshots",
-              "Sonatype OSS Repository" at "https://oss.sonatype.org/service/local/staging/deploy/maven2",
-              "Sonatype OSS Repository 2" at "https://oss.sonatype.org/content/groups/scala-tools/",
-              "Sonatype OSS Snapshot Repository" at "https://oss.sonatype.org/content/repositories/snapshots",
-              "JBoss Maven 2 Repo" at "http://repository.jboss.org/maven2",
-              "repo.codahale.com" at "http://repo.codahale.com")
-        },
-        libraryDependencies <++= (scalaVersion) { scalaVersion =>
-          Seq("org.apache.lucene" % "lucene-core" % "3.5.0",
-              "org.sonatype.tycho" % "org.eclipse.jdt.core" % "3.6.0.v_A58" % "compile;runtime;test",
-              "asm" % "asm" % "3.3",
-              "asm" % "asm-commons" % "3.3",
-              "asm" % "asm-util" % "3.3",
-              "com.googlecode.json-simple" % "json-simple" % "1.1"
-      ) ++
-          (if (scalaVersion == TwoTenVersion)
-            Seq(
-                "org.scalatest" % "scalatest_2.10.0" % "1.8" % "test",
-                "org.scalariform" % "scalariform_2.10" % "0.1.4" % "compile;runtime;test",
-                "org.scala-lang" % "scala-compiler" % scalaVersion % "compile;runtime;test",
-                "org.scala-lang" % "scala-reflect" % scalaVersion % "compile;runtime;test",
-                "org.scala-lang" % "scala-actors" % scalaVersion % "compile;runtime;test")
-          else if (scalaVersion == TwoNineVersion)
-            Seq("org.scalariform" % "scalariform_2.9.1" % "0.1.1" % "compile;runtime;test",
-                "org.scalatest" % "scalatest_2.9.1" % "1.6.1" % "test",
-                "org.scala-lang" % "scala-compiler" % scalaVersion % "compile;runtime;test" withSources())
-          else unsupportedScalaVersion(scalaVersion))
-        },
-        unmanagedJars in Compile <++= (scalaVersion, baseDirectory) map { (scalaVersion, base) =>
-          (((base / "lib") +++ (base / ("lib_" + scalaVersion))) ** "*.jar").classpath
-        },
-        unmanagedClasspath in Compile ++= toolsJar.toList,
-        scalacOptions ++= Seq("-g:vars","-deprecation"),
-        exportJars := true,
-        stageTask,
-        distTask,
-        releaseTask,
-        melpaTask,
-        {
-          import org.ensime.sbt.Plugin.Settings.ensimeConfig
-          import org.ensime.sbt.util.SExp._
-          ensimeConfig := sexp(
-        key(":reference-source-roots"), sexp(
-          "/Users/aemon/lib/scala/src/compiler",
-          "/Users/aemon/lib/scala/src/library")
-      )
-        }
-      ))
+      settings = Project.defaultSettings ++ releaseSettings ++ showCurrentGitBranch ++
+        Seq(
+          version := releaseVersion,
+          organization := "org.ensime",
+          scalaVersion := TwoTenVersion,
+          crossScalaVersions := supportedScalaVersions,
+          resolvers := ensimeResolvers,
+          libraryDependencies <++= ensimeDependencies,
+          unmanagedJars in Compile <++= (scalaVersion, baseDirectory) map { (scalaVersion, base) =>
+            (((base / "lib") +++ (base / ("lib_" + scalaVersion))) ** "*.jar").classpath
+          },
+          unmanagedClasspath in Compile ++= toolsJar.toList,
+          scalacOptions ++= Seq("-g:vars","-deprecation"),
+          exportJars := true,
+          stageTask,
+          distTask,
+          releaseTask,
+          melpaTask,
+          {
+            import org.ensime.sbt.Plugin.Settings.ensimeConfig
+            import org.ensime.sbt.util.SExp._
+            ensimeConfig := sexp(
+              key(":reference-source-roots"), sexp(
+                "/Users/aemon/lib/scala/src/compiler",
+                "/Users/aemon/lib/scala/src/library")
+            )
+          }
+        ))
   }
-
-  val log = MainLogging.defaultScreen
 
   var stage = TaskKey[Unit]("stage",
     "Copy files into staging directory for a release.")
@@ -255,28 +283,41 @@ object EnsimeBuild extends Build {
     None
   }
 
-  var melpa = TaskKey[Unit]("melpa", "Deploy the staged distribution into the MELPA package repository, tag and commit.")
+  var melpaRelease = TaskKey[Unit]("melpa-release", "Deploy the staged distribution into the MELPA package repository, tag and commit.")
   lazy val melpaTask: Setting[sbt.Task[Unit]] =
-    melpa <<= (stage,version,scalaVersion) map {
-      (_,version,scalaBuildVersion) =>
-
-      val refDir = new File("../ensime")
-      val referenceRepo = if(refDir.exists) "--reference ../ensime" else ""
-      val packageRepo = "git@github.com:ensime/ensime.git"
+    melpaRelease <<= (stage, version, scalaVersion, state) map {
+      (_,version,scalaBuildVersion, state) =>
 
       withTemporaryDirectory { tmpDir =>
         log.info("Cloning the ensime/ensime package repository")
-        doSh("git clone " + referenceRepo + " " + packageRepo + " " + tmpDir) !! (log)
+        // doSh("git clone " + referenceRepo + " " + packageRepo + " " + tmpDir) !! (log)
         doSh("rm -rf " + tmpDir + "/*") !! (log)
         log.info("Deploying compiled package")
         doSh("cp -a dist/* " + tmpDir)  !! (log)
         doSh("git checkout README.md ensime-pkg.el", Some(tmpDir))  !! (log)
-        doSh("git checkout staging", Some(tmpDir))  !! (log)
+        doSh("git checkout --quiet staging", Some(tmpDir))  !! (log)
         log.info("Commiting changes")
-        doSh("git commit --all", Some(tmpDir))  !! (log)
-        doSh("git push origin staging", Some(tmpDir))  !! (log)
+        doSh("git commit --all -m 'Deployed compiled package of ensime-src version %s with scala version %s'" format(version, scalaVersion), Some(tmpDir))  !! (log)
+        log.info("Pushing changes")
+        // doSh("git push origin staging", Some(tmpDir))  !! (log)
         None
       }
       None
     }
+}
+
+object Release {
+  import Utils._
+  import ProjectSettings._
+
+  val checkoutEnsime = ReleaseStep(
+    action = state => {
+      val tmpDir = state.get(AttributeKey("tmpDir"))
+      val referenceRepo = if(refDir.exists) "--reference " + refDir else ""
+      val packageRepo = "git@github.com:ensime/ensime.git"
+      log.info("Cloning the ensime/ensime package repository")
+      doSh("git clone " + referenceRepo + " " + packageRepo + " " + tmpDir) !! (log)
+      state
+    }
+  )
 }
