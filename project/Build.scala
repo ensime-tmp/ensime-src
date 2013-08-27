@@ -40,7 +40,7 @@ object ProjectSettings {
   val TwoTenVersion = "2.10.2"
   val supportedScalaVersions = Seq(TwoNineVersion, TwoTenVersion)
 
-  val releaseVersion = "0.9.8.10"
+  val releaseVersion = "0.9.9-SNAPSHOT"
 
   // Reference (local) packaged repository location (ensime/ensime)
   val refDir = new File("../ensime")
