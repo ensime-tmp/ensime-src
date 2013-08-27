@@ -31,7 +31,7 @@ import sbt.Path
 import IO._
 import java.io.FileInputStream
 import sbtrelease._
-import sbtrelease.ReleasePlugin._
+import sbtrelease.ReleasePlugin._, ReleaseKeys._
 import com.typesafe.sbt.SbtGit._
 
 object ProjectSettings {
@@ -137,8 +137,9 @@ object EnsimeBuild extends Build {
           exportJars := true,
           stageTask,
           distTask,
-          releaseTask,
+          // releaseTask,
           melpaTask,
+          releaseProcess := releaseAll,
           {
             import org.ensime.sbt.Plugin.Settings.ensimeConfig
             import org.ensime.sbt.util.SExp._
@@ -283,41 +284,76 @@ object EnsimeBuild extends Build {
     None
   }
 
-  var melpaRelease = TaskKey[Unit]("melpa-release", "Deploy the staged distribution into the MELPA package repository, tag and commit.")
-  lazy val melpaTask: Setting[sbt.Task[Unit]] =
+  var melpaRelease = TaskKey[Seq[ReleaseStep]]("melpa-release", "Deploy the staged distribution into the MELPA package repository, tag and commit.")
+  lazy val melpaTask: Setting[sbt.Task[Seq[ReleaseStep]]] =
     melpaRelease <<= (stage, version, scalaVersion, state) map {
       (_,version,scalaBuildVersion, state) =>
-
-      withTemporaryDirectory { tmpDir =>
-        log.info("Cloning the ensime/ensime package repository")
-        // doSh("git clone " + referenceRepo + " " + packageRepo + " " + tmpDir) !! (log)
-        doSh("rm -rf " + tmpDir + "/*") !! (log)
-        log.info("Deploying compiled package")
-        doSh("cp -a dist/* " + tmpDir)  !! (log)
-        doSh("git checkout README.md ensime-pkg.el", Some(tmpDir))  !! (log)
-        doSh("git checkout --quiet staging", Some(tmpDir))  !! (log)
-        log.info("Commiting changes")
-        doSh("git commit --all -m 'Deployed compiled package of ensime-src version %s with scala version %s'" format(version, scalaVersion), Some(tmpDir))  !! (log)
-        log.info("Pushing changes")
-        // doSh("git push origin staging", Some(tmpDir))  !! (log)
-        None
-      }
-      None
+      state.put(AttributeKey[File]("tmpDir"), createTemporaryDirectory)
+      releaseAll
     }
 }
 
 object Release {
   import Utils._
   import ProjectSettings._
+  import sbtrelease.ReleaseStateTransformations._
+
+  def tmpDir(state: State) = state.get(AttributeKey[File]("tmpDir"))
 
   val checkoutEnsime = ReleaseStep(
-    action = state => {
-      val tmpDir = state.get(AttributeKey("tmpDir"))
+    action = { state: State =>
       val referenceRepo = if(refDir.exists) "--reference " + refDir else ""
       val packageRepo = "git@github.com:ensime/ensime.git"
       log.info("Cloning the ensime/ensime package repository")
-      doSh("git clone " + referenceRepo + " " + packageRepo + " " + tmpDir) !! (log)
+      doSh("git clone " + referenceRepo + " " + packageRepo + " " + tmpDir(state)) !! (log)
       state
     }
+  )
+
+  val copyDist = ReleaseStep(
+    action =  { state: State =>
+      log.info("Deploying compiled package")
+      val td = tmpDir(state)
+      doSh("rm -rf " + td.get + "/*") !! (log)
+      doSh("cp -a dist/* " + td.get)  !! (log)
+      doSh("git checkout README.md ensime-pkg.el", td)  !! (log)
+      doSh("git checkout --quiet staging", td)  !! (log)
+      state
+    }
+  )
+
+  val pushPackage = ReleaseStep(
+    action = { state: State =>
+      log.info("Commiting package changes")
+      val td = tmpDir(state)
+      doSh("git commit --all -m 'Deployed compiled package of ensime-src version %s with scala version %s'" format(version, scalaVersion), td)  !! (log)
+      log.info("Pushing changes")
+      doSh("git push origin staging", td)  !! (log)
+      state
+    }
+  )
+
+  val clearTemporaryDirectory = ReleaseStep(
+    action = { state: State =>
+      delete(tmpDir(state))
+      state.remove(AttributeKey[File]("tmpDir"))
+    }
+  )
+
+  val releaseAll = Seq(
+    checkSnapshotDependencies,
+    inquireVersions,
+    runClean,
+    runTest,
+    setReleaseVersion,
+    commitReleaseVersion,
+    tagRelease,
+    checkoutEnsime,
+    copyDist,
+    pushPackage,
+    clearTemporaryDirectory,
+    setNextVersion,
+    commitNextVersion,
+    pushChanges
   )
 }
