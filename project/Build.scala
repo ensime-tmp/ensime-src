@@ -297,16 +297,28 @@ object Release {
   import Utils._
   import ProjectSettings._
   import sbtrelease.ReleaseStateTransformations._
+  import sbtrelease.Utilities._
 
-  def tmpDir(state: State) = state.get(AttributeKey[File]("tmpDir"))
+  val tmpDirKey = AttributeKey[File]("tmpDir")
+  def tmpDir(state: State) = state.get(tmpDirKey)
+
+  val runStage = ReleaseStep(
+    action = { state: State =>
+      val (st, msg) = state.extract.runTask(EnsimeBuild.stage, state)
+      st
+    }
+  )
 
   val checkoutEnsime = ReleaseStep(
     action = { state: State =>
       val referenceRepo = if(refDir.exists) "--reference " + refDir else ""
       val packageRepo = "git@github.com:ensime/ensime.git"
-      log.info("Cloning the ensime/ensime package repository")
-      doSh("git clone " + referenceRepo + " " + packageRepo + " " + tmpDir(state)) !! (log)
-      state
+      val tmp = createTemporaryDirectory
+      val st = state.put(tmpDirKey, tmp)
+      tmpDir(st).getOrElse(error("Temporary directory undefined"))
+      log.info("Cloning the ensime/ensime package repository into " + tmpDir(st))
+      doSh("git clone " + referenceRepo + " " + packageRepo + " " + tmpDir(st).get) !! (log)
+      st
     }
   )
 
@@ -317,7 +329,7 @@ object Release {
       doSh("rm -rf " + td.get + "/*") !! (log)
       doSh("cp -a dist/* " + td.get)  !! (log)
       doSh("git checkout README.md ensime-pkg.el", td)  !! (log)
-      doSh("git checkout --quiet staging", td)  !! (log)
+      // doSh("git checkout --quiet staging", td)  !! (log)
       state
     }
   )
@@ -326,9 +338,15 @@ object Release {
     action = { state: State =>
       log.info("Commiting package changes")
       val td = tmpDir(state)
-      doSh("git commit --all -m 'Deployed compiled package of ensime-src version %s with scala version %s'" format(version, scalaVersion), td)  !! (log)
+      val extracted = Project.extract(state)
+      import extracted._
+      val (relV, nextV) = state.get(versions).getOrElse(error("Release version wasn't set properly"))
+      val sv = get(scalaVersion in currentRef)
+      log.info("git commit --all -m 'Deployed compiled package of ensime-src version %s with scala version %s'" format(relV, sv))
+      doSh("git add .", td)
+      doSh("git commit --all -m 'Deployed compiled package of ensime-src version %s with scala version %s'" format(relV, sv), td)  !! (log)
       log.info("Pushing changes")
-      doSh("git push origin staging", td)  !! (log)
+      doSh("git push --quiet origin staging", td)  !! (log)
       state
     }
   )
@@ -336,7 +354,7 @@ object Release {
   val clearTemporaryDirectory = ReleaseStep(
     action = { state: State =>
       delete(tmpDir(state))
-      state.remove(AttributeKey[File]("tmpDir"))
+      state.remove(tmpDirKey)
     }
   )
 
@@ -345,6 +363,7 @@ object Release {
     inquireVersions,
     runClean,
     runTest,
+    runStage,
     setReleaseVersion,
     commitReleaseVersion,
     tagRelease,
