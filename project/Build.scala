@@ -40,11 +40,10 @@ object ProjectSettings {
   val TwoTenVersion = "2.10.2"
   val supportedScalaVersions = Seq(TwoNineVersion, TwoTenVersion)
 
-  val releaseVersion = "0.9.9-SNAPSHOT"
 
   // Reference (local) packaged repository location (ensime/ensime)
   val refDir = new File("../ensime")
-
+  val ensimePackageRepository = "git@github.com:ensime/ensime.git"
 }
 
 object Resolvers {
@@ -123,7 +122,6 @@ object EnsimeBuild extends Build {
       base = file ("."),
       settings = Project.defaultSettings ++ releaseSettings ++ showCurrentGitBranch ++
         Seq(
-          version := releaseVersion,
           organization := "org.ensime",
           scalaVersion := TwoTenVersion,
           crossScalaVersions := supportedScalaVersions,
@@ -301,6 +299,7 @@ object Release {
 
   val tmpDirKey = AttributeKey[File]("tmpDir")
   def tmpDir(state: State) = state.get(tmpDirKey)
+  def getVersions(state: State) = state.get(versions).getOrElse(error("Release version wasn't set properly"))
 
   val runStage = ReleaseStep(
     action = { state: State =>
@@ -312,13 +311,29 @@ object Release {
   val checkoutEnsime = ReleaseStep(
     action = { state: State =>
       val referenceRepo = if(refDir.exists) "--reference " + refDir else ""
-      val packageRepo = "git@github.com:ensime/ensime.git"
+      val packageRepo = ensimePackageRepository
       val tmp = createTemporaryDirectory
       val st = state.put(tmpDirKey, tmp)
-      tmpDir(st).getOrElse(error("Temporary directory undefined"))
-      log.info("Cloning the ensime/ensime package repository into " + tmpDir(st))
-      doSh("git clone " + referenceRepo + " " + packageRepo + " " + tmpDir(st).get) !! (log)
+      log.info("Cloning the ensime/ensime package repository into " + tmp)
+      doSh("git clone " + referenceRepo + " " + packageRepo + " " + tmp) !! (log)
+      doSh("git checkout --quiet staging", Some(tmp))  !! (log)
       st
+    }
+  )
+
+  val updatePackage = ReleaseStep(
+    action = { state: State =>
+      log.info("Updating package definition.")
+      val (cur, next) = getVersions(state)
+      val caskOld = readLines(file("Cask"))
+      val pkgDesc = """(package "ensime" "%s" "ENhanced Scala Interaction Mode for Emacs")"""
+      log.info(pkgDesc format cur)
+      val caskNew = caskOld map ("""^\(package "ensime".*\)$""".r replaceAllIn(_, pkgDesc format cur))
+      writeLines(file("Cask"), caskNew)
+      doSh("cask package") !! (log)
+      doSh("git add Cask ensime-src-pkg.el") !! (log)
+      doSh("""git commit -m "Updated package definition with new release version %s" """ format cur) !! (log)
+      state
     }
   )
 
@@ -328,25 +343,32 @@ object Release {
       val td = tmpDir(state)
       doSh("rm -rf " + td.get + "/*") !! (log)
       doSh("cp -a dist/* " + td.get)  !! (log)
-      doSh("git checkout README.md ensime-pkg.el", td)  !! (log)
-      // doSh("git checkout --quiet staging", td)  !! (log)
+      log.info("copying ensime-src-pkg.el to "  + (td.get / "ensime-pkg.el"))
+      doSh("cp ensime-src-pkg.el " + (td.get / "ensime-pkg.el")) !! (log)
+      doSh("cp -a Cask features " + td.get) !! (log)
+      doSh("git checkout README.md", td)  !! (log)
+      state
+    }
+  )
+
+  val commitPackage = ReleaseStep(
+    action = { state: State =>
+      val td = tmpDir(state)
+      val extracted = state.extract
+      import extracted._
+      val (relV, nextV) = getVersions(state)
+      val sv = get(scalaVersion in currentRef)
+      log.info("Commiting package changes as release %s for scala %s"  format(relV, sv))
+      doSh("git add .", td) !! (log)
+      doSh("git commit --all -m 'Deployed compiled package of ensime-src version %s with scala version %s'" format(relV, sv), td)  !! (log)
       state
     }
   )
 
   val pushPackage = ReleaseStep(
     action = { state: State =>
-      log.info("Commiting package changes")
-      val td = tmpDir(state)
-      val extracted = Project.extract(state)
-      import extracted._
-      val (relV, nextV) = state.get(versions).getOrElse(error("Release version wasn't set properly"))
-      val sv = get(scalaVersion in currentRef)
-      log.info("git commit --all -m 'Deployed compiled package of ensime-src version %s with scala version %s'" format(relV, sv))
-      doSh("git add .", td)
-      doSh("git commit --all -m 'Deployed compiled package of ensime-src version %s with scala version %s'" format(relV, sv), td)  !! (log)
       log.info("Pushing changes")
-      doSh("git push --quiet origin staging", td)  !! (log)
+      doSh("git push --quiet origin staging", tmpDir(state))  !! (log)
       state
     }
   )
@@ -363,12 +385,14 @@ object Release {
     inquireVersions,
     runClean,
     runTest,
-    runStage,
     setReleaseVersion,
+    runStage,
     commitReleaseVersion,
     tagRelease,
     checkoutEnsime,
+    updatePackage,
     copyDist,
+    commitPackage,
     pushPackage,
     clearTemporaryDirectory,
     setNextVersion,
