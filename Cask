@@ -1,7 +1,7 @@
 ;; -*-lisp-*-
 (source melpa)
 
-(package "ensime" "0.9.8.10" "ENhanced Scala Interaction Mode for Emacs")
+(package "ensime" "0.9.9" "ENhanced Scala Interaction Mode for Emacs")
 
 (depends-on "s" "1.3.0")
 (depends-on "dash" "1.0.3")
