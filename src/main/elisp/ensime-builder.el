@@ -24,6 +24,7 @@
   "Start the incremental builder. This command will trigger
 a full recompile of the entire project!"
   (interactive)
+  (when ensime-save-before-compile (save-some-buffers))
   (setf (ensime-builder-changed-files (ensime-connection)) nil)
   (ensime-rpc-async-builder-init 'ensime-show-compile-result-buffer))
 
@@ -44,6 +45,7 @@ with all others that have been saved(modified) since the last rebuild."
 all files that have been changed since the last rebuild, so incremental
 builder can avoid extra work."
   (interactive)
+  (when ensime-save-before-compile (save-some-buffers))
   (let ((change-set (ensime-builder-changed-files
 		     (ensime-connection))))
     (if change-set

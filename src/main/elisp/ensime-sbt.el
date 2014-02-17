@@ -221,20 +221,25 @@
   (interactive (list (read-string "Sbt command: " ensime-sbt-command-history)))
   (setq ensime-sbt-command-history sbt-command)
   (ensime-sbt-switch)
+  ;; Assume that any SBT action would be affected by unsaved buffers.
+  (when ensime-save-before-compile (save-some-buffers))
   (ensime-sbt-action sbt-command))
 
 (defun ensime-sbt-do-compile ()
   (interactive)
+  (when ensime-save-before-compile (save-some-buffers))
   (ensime-sbt-switch)
   (ensime-sbt-action "compile"))
 
 (defun ensime-sbt-do-clean ()
   (interactive)
+  (when ensime-save-before-compile (save-some-buffers))
   (ensime-sbt-switch)
   (ensime-sbt-action "clean"))
 
 (defun ensime-sbt-do-package ()
   (interactive)
+  (when ensime-save-before-compile (save-some-buffers))
   (ensime-sbt-switch)
   (ensime-sbt-action "package"))
 

@@ -84,6 +84,11 @@
   :type 'boolean
   :group 'ensime-ui)
 
+(defcustom ensime-save-before-compile t
+  "If non-nil, save all buffers before compiling."
+  :type 'boolean
+  :group 'ensime-ui)
+
 (defcustom ensime-tooltip-hints t
   "If non-nil, mouse tooltips are activated."
   :type 'boolean
