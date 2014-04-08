@@ -2217,7 +2217,8 @@ any buffer visiting the given file."
 
 (defun ensime-files-equal-p (f1 f2)
   "Return t if file-names refer to same file."
-  (equal (expand-file-name f1) (expand-file-name f2)))
+  (equal (file-truename (expand-file-name f1))
+         (file-truename (expand-file-name f2))))
 
 
 (defun ensime-window-showing-file (file)
