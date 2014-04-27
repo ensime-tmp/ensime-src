@@ -1,11 +1,21 @@
 # ENSIME
 the ENhanced Scala Interaction Mode for Emacs
 
-A quick note on status: 
+
+Aemon (the primary author) is currently unable to dedicate his time to this project.
+However, there is an active community of users and contributers who continue
+this great project at [`ensime/ensime-src`](https://github.com/ensime/ensime-src)
+and on the [ENSIME Google Group](https://groups.google.com/forum/#!forum/ensime).
+Please submit tickets against [Aemon's repository](https://github.com/aemoncannon/ensime-original/issues)
+for now, but issue pull requests against `ensime/ensime-src`.
+
+
+```
 Events in my life have conspired to give me less free time to work on ENSIME. However, I still believe
 in this project, and will try to respond to pull requests / bug fixes in a timely manner. I do hope to
 move it back to the front burner some day 
 Best, Aemon
+```
 
 # Links
 - [ Download releases ](https://www.dropbox.com/sh/ryd981hq08swyqr/V9o9rDvxkS/ENSIME%20Releases)
@@ -13,7 +23,7 @@ Best, Aemon
 - [ Manual ](http://aemoncannon.github.com/ensime/index.html)
 - [ Manual as PDF ](http://aemoncannon.github.com/ensime/manual.pdf)
 - [ Discussion Group ](http://groups.google.com/group/ensime?hl=en)
-
+- [ Wiki ](https://github.com/aemoncannon/ensime-original/wiki)
 
 ## Features
 
